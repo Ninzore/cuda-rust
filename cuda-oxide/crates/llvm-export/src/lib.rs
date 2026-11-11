@@ -592,7 +592,7 @@ pub mod ops {
         /// The finite pointee tree is required so the exporter never emits a
         /// pointer with a null `baseType`, which debuggers present
         /// misleadingly as `*mut ()`. Recursive composite graphs are not
-        /// represented by this tree-shaped model and must be rejected by the
+        /// represented by this tree-shaped model; depth limits are enforced by the
         /// importer.
         TypedPointer {
             name: String,
@@ -679,10 +679,10 @@ pub mod ops {
         /// Whether this type belongs to the acyclic subset accepted beneath a
         /// [`DebugLocalTypeKind::TypedPointer`].
         ///
-        /// Opaque pointers and source composites are excluded recursively so a
+        /// Opaque pointers and empty composites are excluded recursively so a
         /// typed pointer can never hide a null-base descendant or smuggle a
         /// recursive type graph into this tree-shaped representation.
-        pub(crate) fn is_valid_typed_pointer_pointee(&self) -> bool {
+        pub fn is_valid_typed_pointer_pointee(&self) -> bool {
             match self {
                 DebugLocalTypeKind::Basic { .. } => true,
                 DebugLocalTypeKind::TypedPointer { pointee, .. } => {
@@ -691,9 +691,19 @@ pub mod ops {
                 DebugLocalTypeKind::Array { element, .. } => {
                     element.is_valid_typed_pointer_pointee()
                 }
-                DebugLocalTypeKind::Pointer { .. }
-                | DebugLocalTypeKind::Struct { .. }
-                | DebugLocalTypeKind::Enum { .. } => false,
+                DebugLocalTypeKind::Struct { members, .. } if !members.is_empty() => members
+                    .iter()
+                    .all(|m| m.ty.is_valid_typed_pointer_pointee()),
+                Self::Enum {
+                    discriminant: tag,
+                    variants,
+                    ..
+                } if !variants.is_empty() => {
+                    let mut members = variants.iter().flat_map(|v| &v.members);
+                    tag.iter().all(|d| d.ty.is_valid_typed_pointer_pointee())
+                        && members.all(|m| m.ty.is_valid_typed_pointer_pointee())
+                }
+                _ => false,
             }
         }
     }
@@ -747,7 +757,7 @@ pub mod ops {
             } => {
                 assert!(
                     pointee.is_valid_typed_pointer_pointee(),
-                    "typed pointer pointee must contain only basic, typed-pointer, or array nodes"
+                    "typed pointer pointee must contain only supported non-opaque nodes"
                 );
                 out.push('t');
                 put_u64(out, *size_bits);
@@ -2920,10 +2930,10 @@ pub mod ops {
                 "t64 8 *const _p64 8 *mut i32",
                 // The opaque pointer is hidden beneath a fixed array.
                 "t64 8 *const _a64 8 [ptr; 1]1 p64 8 *mut i32",
-                // Source composites are outside the acyclic typed subset.
+                // Empty struct and enum pointees remain unsupported.
                 "t64 8 *const _s64 3 Foo0 ",
                 "t64 8 *const _e64 3 Foo0 0 ",
-                // Composite descendants cannot be hidden below an otherwise
+                // Unsupported descendants cannot be hidden below an otherwise
                 // accepted array or typed-pointer node either.
                 "t64 8 *const _a64 8 [Foo; 1]1 s64 3 Foo0 ",
                 "t64 15 *const *const _t64 8 *const _e64 3 Foo0 0 ",
@@ -2940,7 +2950,7 @@ pub mod ops {
 
         #[test]
         #[should_panic(
-            expected = "typed pointer pointee must contain only basic, typed-pointer, or array nodes"
+            expected = "typed pointer pointee must contain only supported non-opaque nodes"
         )]
         fn serializer_rejects_hand_built_typed_pointer_with_opaque_descendant() {
             let invalid = DebugLocalTypeKind::TypedPointer {

@@ -752,7 +752,7 @@ impl<'a> ModuleExportState<'a> {
             } => {
                 assert!(
                     pointee.is_valid_typed_pointer_pointee(),
-                    "typed pointer cannot export an opaque or composite pointee descendant"
+                    "typed pointer cannot export an unsupported pointee descendant"
                 );
                 let base = self.ensure_debug_type(pointee);
                 let name = escape_debug_string(name);

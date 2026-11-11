@@ -1040,7 +1040,8 @@ static SHARED_I32: SharedMarker<i32, 32> = SharedMarker(core::marker::PhantomDat
 static SHARED_UNION: SharedMarker<Word, 4> = SharedMarker(core::marker::PhantomData);
 static SHARED_POINTER: SharedMarker<*mut u32, 4> = SharedMarker(core::marker::PhantomData);
 static SHARED_POINTER_STRUCT: SharedMarker<ContainsPointer, 2> = SharedMarker(core::marker::PhantomData);
-static SHARED_OPAQUE_POINTER: SharedMarker<*mut ContainsPointer, 4> = SharedMarker(core::marker::PhantomData);
+static SHARED_COMPOSITE_POINTER: SharedMarker<*mut ContainsPointer, 4> = SharedMarker(core::marker::PhantomData);
+static SHARED_OPAQUE_POINTER: SharedMarker<*mut Word, 4> = SharedMarker(core::marker::PhantomData);
 
 fn same_leaf(flag: bool) {
     if flag {
@@ -1183,7 +1184,8 @@ fn same_leaf(flag: bool) {
             )
         ));
         assert!(shared("SHARED_POINTER_STRUCT").is_some());
-        // A composite pointee has no bounded tree, so the pointer falls back
+        assert!(shared("SHARED_COMPOSITE_POINTER").is_some());
+        // A union pointee is unsupported, so the pointer falls back
         // to the opaque legacy form and the whole graph is rejected.
         assert!(
             shared("SHARED_OPAQUE_POINTER").is_none(),

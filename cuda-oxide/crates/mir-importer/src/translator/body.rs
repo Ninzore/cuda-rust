@@ -1369,10 +1369,10 @@ fn narrow_debug_type_to_shared_addr_space(ty: &DebugLocalTypeKind) -> DebugLocal
 ///
 /// Rust references and raw pointers to dynamically-sized types are fat
 /// pointers. Encoding those as a typed `DW_TAG_pointer_type` would discard
-/// their metadata word, so this helper declines them and lets the caller retain
-/// the legacy opaque pointer metadata. The same fallback applies when a pointee
-/// is unsupported or exceeds the recursion bound. Composite pointees are
-/// deliberately excluded here: `DebugLocalTypeKind` is currently a tree, so
+/// their metadata word, so this helper declines them. The caller first tries
+/// a slice/str representation, then falls back to legacy opaque metadata.
+/// Unsupported or over-depth pointees also use the opaque fallback. Composite
+/// pointees reuse partial local-variable metadata. With no recursion bound,
 /// following an ADT such as `Node { next: *const Node }` would recursively
 /// unroll the same type instead of representing the cyclic DWARF graph.
 #[derive(Clone, Copy)]
@@ -1512,10 +1512,10 @@ fn typed_pointer_pointee_display_name(ty: &DebugLocalTypeKind) -> &str {
     match ty {
         DebugLocalTypeKind::Basic { name, .. }
         | DebugLocalTypeKind::TypedPointer { name, .. }
-        | DebugLocalTypeKind::Array { name, .. } => name,
-        DebugLocalTypeKind::Pointer { .. }
-        | DebugLocalTypeKind::Struct { .. }
-        | DebugLocalTypeKind::Enum { .. } => {
+        | DebugLocalTypeKind::Array { name, .. }
+        | DebugLocalTypeKind::Struct { name, .. }
+        | DebugLocalTypeKind::Enum { name, .. } => name,
+        DebugLocalTypeKind::Pointer { .. } => {
             unreachable!("typed pointer pointees use only the bounded typed subset")
         }
     }
@@ -1524,9 +1524,9 @@ fn typed_pointer_pointee_display_name(ty: &DebugLocalTypeKind) -> &str {
 /// Build the finite subset that is safe to embed beneath a pointer node.
 ///
 /// Primitive leaves, fixed arrays whose elements stay inside this subset, and
-/// nested thin pointers/references form an acyclic tree. Tuples, ADTs, enums,
-/// closures, and every other composite are rejected even when the general
-/// local-variable debug path can describe part of them. `char` and unit are
+/// nested thin pointers/references and composites form a depth-bounded tree.
+/// Structs, tuples, enums, and closures reuse the local-variable builder, which
+/// may omit unsupported fields. Opaque descendants are rejected. `char` and unit are
 /// also rejected until `DebugLocalTypeKind` has an accurate encoding for them;
 /// treating either as an integer or null-base pointer would be misleading.
 fn debug_pointer_pointee_type(ty: &Ty, depth: usize) -> Option<DebugLocalTypeKind> {
@@ -1567,6 +1567,10 @@ fn debug_pointer_pointee_type(ty: &Ty, depth: usize) -> Option<DebugLocalTypeKin
                 element: Box::new(element_debug),
                 count,
             })
+        }
+        TyKind::RigidTy(RigidTy::Tuple(_) | RigidTy::Adt(..) | RigidTy::Closure(..)) => {
+            debug_type_for_ty_at(ty, depth)
+                .filter(DebugLocalTypeKind::is_valid_typed_pointer_pointee)
         }
         _ => None,
     }
@@ -3543,8 +3547,8 @@ pub fn probe(x: &i32) -> i32 {
         );
     }
 
-    /// Thin pointers preserve a finite pointee debug tree, while composites,
-    /// fat pointers, and unsupported pointees retain the opaque fallback.
+    /// Thin pointers preserve a finite pointee debug tree; unsupported composites
+    /// and unsupported fat pointers retain the opaque fallback.
     #[test]
     fn pointer_debug_types_type_safe_pointees_and_preserve_opaque_fallbacks() {
         let unique = std::time::SystemTime::now()
@@ -3746,8 +3750,35 @@ pub fn pointer_debug_types(
             assert_eq!(*size_bits, 64, "compatibility fallback preserves old width");
         }
 
-        assert_opaque_pointer(&debug_types[4], "*const _");
-        assert_opaque_pointer(&debug_types[5], "*const _");
+        use DebugLocalTypeKind::{Struct, TypedPointer};
+        // The pinned rustc reorders Pair's fields, but preserves this tuple's order.
+        for (index, expected_name, expected_fields) in [
+            (4, "Pair", [("first", 64, 32), ("second", 0, 64)]),
+            (5, "(u32, u64)", [("__0", 0, 32), ("__1", 64, 64)]),
+        ] {
+            let pointer = debug_types[index].as_ref().expect(expected_name);
+            assert_eq!(pointer.size_bits(), 64);
+            let TypedPointer { name, pointee, .. } = pointer else {
+                panic!("expected pointer to {expected_name}, got {pointer:?}");
+            };
+            assert_eq!(name, &format!("*const {expected_name}"));
+            let Struct {
+                name,
+                size_bits,
+                members,
+            } = pointee.as_ref()
+            else {
+                panic!("expected composite {expected_name}, got {pointee:?}");
+            };
+            assert_eq!(name, expected_name);
+            assert_eq!(*size_bits, 128);
+            assert_eq!(members.len(), expected_fields.len());
+            for (member, (name, offset_bits, size_bits)) in members.iter().zip(expected_fields) {
+                assert_eq!(member.name, name);
+                assert_eq!(member.offset_bits, offset_bits, "{expected_name}.{name}");
+                assert_eq!(member.ty.size_bits(), size_bits, "{expected_name}.{name}");
+            }
+        }
         assert!(matches!(
             &debug_types[6],
             Some(DebugLocalTypeKind::Struct {
@@ -3850,7 +3881,8 @@ pub fn closure_host(a: u32, b: u64) -> u32 {
                         .map(|decl| decl.ty)
                         .find(|ty| matches!(ty.kind(), TyKind::RigidTy(RigidTy::Closure(..))))
                         .expect("fixture must contain a closure-typed local");
-                    std::ops::ControlFlow::<(), _>::Continue(debug_type_for_ty(&closure_ty))
+                    let pointee = debug_pointer_pointee_type(&closure_ty, 0);
+                    std::ops::ControlFlow::<(), _>::Continue(pointee)
                 })
             })
             .unwrap()

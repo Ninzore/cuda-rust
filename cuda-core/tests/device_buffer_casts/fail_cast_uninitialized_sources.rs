@@ -16,13 +16,13 @@ struct Padded {
 // resources. DeviceCopy permits padding; it does not imply NoUninit.
 unsafe impl DeviceCopy for Padded {}
 
-fn uninitialized_element(buffer: DeviceBuffer<MaybeUninit<u32>>) -> DeviceBuffer<u32> {
+fn uninitialized_element<T: DeviceCopy>(buffer: DeviceBuffer<T>) -> DeviceBuffer<u32> {
     buffer.cast_elem()
 }
 
-fn uninitialized_chunks(
-    buffer: DeviceBuffer<MaybeUninit<u32>>,
-) -> Result<DeviceBuffer<u8>, DeviceBuffer<MaybeUninit<u32>>> {
+fn uninitialized_chunks<T: DeviceCopy>(
+    buffer: DeviceBuffer<T>,
+) -> Result<DeviceBuffer<u8>, DeviceBuffer<T>> {
     buffer.cast_chunks()
 }
 
@@ -34,7 +34,14 @@ fn padded_chunks(buffer: DeviceBuffer<Padded>) -> Result<DeviceBuffer<u8>, Devic
     buffer.cast_chunks()
 }
 
+include!("../support/assert_not_impl.rs");
+
 fn main() {
+    assert_not_impl!(MaybeUninit<u32>: cuda_core::bytemuck::NoUninit);
+    let _ = (
+        uninitialized_element::<MaybeUninit<u32>>,
+        uninitialized_chunks::<MaybeUninit<u32>>,
+    );
     fn is_device_copy<T: DeviceCopy>() {}
     is_device_copy::<MaybeUninit<u32>>();
     is_device_copy::<Padded>();

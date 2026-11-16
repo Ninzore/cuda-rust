@@ -2471,6 +2471,26 @@ mod tests {
     }
 
     #[test]
+    fn runoff_uses_paired_medians_and_keeps_the_leader_on_ties() {
+        let (a, b) = (cfg(32, 2), cfg(64, 4));
+        for (times_a, times_b, b_wins) in [
+            ([1.0, 2.0, 9.0], [3.0, 4.0, 5.0], false),
+            ([0.0, 5.0, 6.0], [1.0, 2.0, 3.0], true),
+            ([2.0, 3.0, 9.0], [1.0, 3.0, 4.0], false),
+        ] {
+            let winner = runoff_verdict(
+                a.clone(),
+                b.clone(),
+                Ok((meas(&times_a), meas(&times_b))),
+                &mut Vec::new(),
+                &mut silent_log(),
+            );
+            let expected = if b_wins { &b } else { &a };
+            assert_eq!(winner, *expected, "paired medians decide; A wins ties");
+        }
+    }
+
+    #[test]
     fn runoff_trials_carry_real_measurement_metadata() {
         let (a, b) = (cfg(32, 2), cfg(64, 4));
         let mut trials = Vec::new();

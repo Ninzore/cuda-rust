@@ -38,28 +38,13 @@ help: consider further restricting type parameter `T` with trait `Pod`
 23 | fn uninitialized_chunks<T: DeviceCopy + cuda_core::bytemuck::Pod>(
    |                                       ++++++++++++++++++++++++++
 
-error[E0277]: the trait bound `Padded: NoUninit` is not satisfied
+error[E0277]: the trait bound `T: NoUninit` is not satisfied
   --> tests/device_buffer_casts/fail_cast_uninitialized_sources.rs:30:12
    |
 30 |     buffer.cast_elem()
-   |            ^^^^^^^^^ unsatisfied trait bound
+   |            ^^^^^^^^^ the trait `Pod` is not implemented for `T`
    |
-help: the trait `Pod` is not implemented for `Padded`
-  --> tests/device_buffer_casts/fail_cast_uninitialized_sources.rs:10:1
-   |
-10 | struct Padded {
-   | ^^^^^^^^^^^^^
-   = help: the following other types implement trait `Pod`:
-             ()
-             ManuallyDrop<T>
-             Option<T>
-             PhantomData<T>
-             PhantomPinned
-             Wrapping<T>
-             [T; N]
-             __m128
-           and $N others
-   = note: required for `Padded` to implement `NoUninit`
+   = note: required for `T` to implement `NoUninit`
 note: required by a bound in `DeviceBuffer::<T>::cast_elem`
   --> src/device_buffer.rs
    |
@@ -68,29 +53,18 @@ note: required by a bound in `DeviceBuffer::<T>::cast_elem`
    |     where
    |         T: NoUninit,
    |            ^^^^^^^^ required by this bound in `DeviceBuffer::<T>::cast_elem`
+help: consider further restricting type parameter `T` with trait `Pod`
+   |
+29 | fn padded_element<T: DeviceCopy + cuda_core::bytemuck::Pod>(buffer: DeviceBuffer<T>) -> DeviceBuffer<[u32; 2]> {
+   |                                 ++++++++++++++++++++++++++
 
-error[E0277]: the trait bound `Padded: NoUninit` is not satisfied
-  --> tests/device_buffer_casts/fail_cast_uninitialized_sources.rs:34:12
+error[E0277]: the trait bound `T: NoUninit` is not satisfied
+  --> tests/device_buffer_casts/fail_cast_uninitialized_sources.rs:36:12
    |
-34 |     buffer.cast_chunks()
-   |            ^^^^^^^^^^^ unsatisfied trait bound
+36 |     buffer.cast_chunks()
+   |            ^^^^^^^^^^^ the trait `Pod` is not implemented for `T`
    |
-help: the trait `Pod` is not implemented for `Padded`
-  --> tests/device_buffer_casts/fail_cast_uninitialized_sources.rs:10:1
-   |
-10 | struct Padded {
-   | ^^^^^^^^^^^^^
-   = help: the following other types implement trait `Pod`:
-             ()
-             ManuallyDrop<T>
-             Option<T>
-             PhantomData<T>
-             PhantomPinned
-             Wrapping<T>
-             [T; N]
-             __m128
-           and $N others
-   = note: required for `Padded` to implement `NoUninit`
+   = note: required for `T` to implement `NoUninit`
 note: required by a bound in `DeviceBuffer::<T>::cast_chunks`
   --> src/device_buffer.rs
    |
@@ -99,3 +73,7 @@ note: required by a bound in `DeviceBuffer::<T>::cast_chunks`
    |     where
    |         T: NoUninit,
    |            ^^^^^^^^ required by this bound in `DeviceBuffer::<T>::cast_chunks`
+help: consider further restricting type parameter `T` with trait `Pod`
+   |
+33 | fn padded_chunks<T: DeviceCopy + cuda_core::bytemuck::Pod>(
+   |                                ++++++++++++++++++++++++++

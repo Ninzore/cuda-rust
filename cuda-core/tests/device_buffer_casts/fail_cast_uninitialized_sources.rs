@@ -26,11 +26,13 @@ fn uninitialized_chunks<T: DeviceCopy>(
     buffer.cast_chunks()
 }
 
-fn padded_element(buffer: DeviceBuffer<Padded>) -> DeviceBuffer<[u32; 2]> {
+fn padded_element<T: DeviceCopy>(buffer: DeviceBuffer<T>) -> DeviceBuffer<[u32; 2]> {
     buffer.cast_elem()
 }
 
-fn padded_chunks(buffer: DeviceBuffer<Padded>) -> Result<DeviceBuffer<u8>, DeviceBuffer<Padded>> {
+fn padded_chunks<T: DeviceCopy>(
+    buffer: DeviceBuffer<T>,
+) -> Result<DeviceBuffer<u8>, DeviceBuffer<T>> {
     buffer.cast_chunks()
 }
 
@@ -38,9 +40,12 @@ include!("../support/assert_not_impl.rs");
 
 fn main() {
     assert_not_impl!(MaybeUninit<u32>: cuda_core::bytemuck::NoUninit);
+    assert_not_impl!(Padded: cuda_core::bytemuck::NoUninit);
     let _ = (
         uninitialized_element::<MaybeUninit<u32>>,
         uninitialized_chunks::<MaybeUninit<u32>>,
+        padded_element::<Padded>,
+        padded_chunks::<Padded>,
     );
     fn is_device_copy<T: DeviceCopy>() {}
     is_device_copy::<MaybeUninit<u32>>();
